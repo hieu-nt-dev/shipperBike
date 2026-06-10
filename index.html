@@ -677,7 +677,19 @@ html, body {
       <span class="dev-val" id="val-bike-h">400</span>
     </div>
     <div class="dev-divider"></div>
-    <button id="bike-reset-btn">↺ Reset to defaults</button>
+    <div class="dev-section-label">Drag finger offset</div>
+    <div class="dev-row">
+      <label>Offset X</label>
+      <input type="range" id="drag-ox" min="-200" max="200" step="1" value="0">
+      <span class="dev-val" id="val-drag-ox">0</span>
+    </div>
+    <div class="dev-row">
+      <label>Offset Y</label>
+      <input type="range" id="drag-oy" min="-300" max="100" step="1" value="-80">
+      <span class="dev-val" id="val-drag-oy">-80</span>
+    </div>
+    <div class="dev-divider"></div>
+    <button id="bike-reset-btn">↺ Reset bike to defaults</button>
     <button id="bike-copy-btn">📋 Copy bike config</button>
   </div>
 
@@ -758,6 +770,11 @@ const state = {
   devShowFill: true,
   devFillAlpha: 0.25,
 
+  // Finger offset: item ghost is drawn at (finger + dragOffsetX, finger + dragOffsetY)
+  // Negative Y moves the item above the finger, out of the way
+  dragOffsetX: 0,
+  dragOffsetY: -80,
+
   longPressTimer: null,
 };
 
@@ -773,6 +790,14 @@ function applyMirrorSides() {
   state.box3.y = state.box2.y + state.box2.h + state.sideSpacing;
   state.box2.polygon = boxToPolygon(state.box2);
   state.box3.polygon = boxToPolygon(state.box3);
+}
+
+// Compute item top-left position from current drag state (pointer + finger offset - item center offset)
+function dragItemPos() {
+  if (!state.dragging) return [0, 0];
+  const ix = state.dragLX - state.dragging.offsetX + state.dragOffsetX;
+  const iy = state.dragLY - state.dragging.offsetY + state.dragOffsetY;
+  return [ix, iy];
 }
 
 state.box.polygon  = boxToPolygon(state.box);
@@ -1305,8 +1330,7 @@ function render() {
   // 4. Drag ghost on canvas
   if (state.dragging) {
     const it = state.dragging.item;
-    const lx = state.dragLX - state.dragging.offsetX;
-    const ly = state.dragLY - state.dragging.offsetY;
+    const [lx, ly] = dragItemPos();
     drawItem(ctx, it, lx, ly, 0.72);
     // Validity outline — follows rotated collider exactly
     const testPoly = worldPoly(it.collider, lx, ly);
@@ -1572,10 +1596,8 @@ function hitTestPlaced(lx, ly) {
 
 function updateDragValidity() {
   if (!state.dragging) return;
-  const it = state.dragging;
-  const ix = state.dragLX - it.offsetX;
-  const iy = state.dragLY - it.offsetY;
-  const testPoly = worldPoly(it.item.collider, ix, iy);
+  const [ix, iy] = dragItemPos();
+  const testPoly = worldPoly(state.dragging.item.collider, ix, iy);
 
   // Valid if fits in ANY of the three boxes
   const boxes = [state.box, state.box2, state.box3];
@@ -1588,8 +1610,8 @@ function updateDragValidity() {
 
   // Overlap check against all placed items (excluding self)
   for (const pi of state.placedItems) {
-    if (pi.item === it.item) continue;
-    if (itemsOverlap(it.item, ix, iy, pi.item, pi.x, pi.y)) {
+    if (pi.item === state.dragging.item) continue;
+    if (itemsOverlap(state.dragging.item, ix, iy, pi.item, pi.x, pi.y)) {
       state.dragValid = false; return;
     }
   }
@@ -1598,8 +1620,7 @@ function updateDragValidity() {
 
 function dropItem() {
   const it = state.dragging;
-  const ix = state.dragLX - it.offsetX;
-  const iy = state.dragLY - it.offsetY;
+  const [ix, iy] = dragItemPos();
 
   if (state.dragValid) {
     // Lock in place
@@ -1784,6 +1805,21 @@ function buildDevPanel() {
   bindBike('bike-w', 'w', 'val-bike-w');
   bindBike('bike-h', 'h', 'val-bike-h');
 
+  // ---- Drag finger offset sliders ----
+  const bindDragOffset = (id, key, valId) => {
+    const input = document.getElementById(id);
+    const valEl = document.getElementById(valId);
+    if (!input) return;
+    input.addEventListener('input', () => {
+      const v = parseInt(input.value);
+      state[key] = v;
+      valEl.textContent = v;
+      render();
+    });
+  };
+  bindDragOffset('drag-ox', 'dragOffsetX', 'val-drag-ox');
+  bindDragOffset('drag-oy', 'dragOffsetY', 'val-drag-oy');
+
   // ---- Bike buttons ----
   document.getElementById('bike-reset-btn').addEventListener('click', () => {
     state.bike = { x: 0, y: 0, w: DESIGN_W, h: DESIGN_H };
@@ -1874,6 +1910,9 @@ function syncDevPanelToState() {
   setVal('bike-y','val-bike-y', state.bike.y);
   setVal('bike-w','val-bike-w', state.bike.w);
   setVal('bike-h','val-bike-h', state.bike.h);
+  // Drag offset
+  setVal('drag-ox','val-drag-ox', state.dragOffsetX);
+  setVal('drag-oy','val-drag-oy', state.dragOffsetY);
 }
 
 function toggleDevPanel() {
