@@ -1,0 +1,1997 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Pack It — Delivery Puzzle</title>
+<style>
+/* ============================================================
+   RESET & BASE
+   ============================================================ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  width: 100%; height: 100%;
+  overflow: hidden;
+  background: #000;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ============================================================
+   ORIENTATION GATE
+   ============================================================ */
+#rotate-prompt {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 100%; height: 100%;
+  color: #fff;
+  gap: 16px;
+  background: #111;
+}
+#rotate-prompt .icon { font-size: 3rem; animation: spin 2s ease-in-out infinite alternate; }
+#rotate-prompt p { font-size: 1.1rem; opacity: 0.8; }
+@keyframes spin { from { transform: rotate(-15deg); } to { transform: rotate(15deg); } }
+
+#game-root {
+  display: flex;
+  flex-direction: column;
+  width: 100%; height: 100%;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+  background: #000;
+}
+
+/* On real mobile portrait only, show rotate prompt */
+@media (orientation: portrait) and (max-width: 768px) {
+  #game-root { display: none !important; }
+  #rotate-prompt { display: flex; }
+}
+
+/* ============================================================
+   LAYOUT: CANVAS WRAPPER (top) + TRAY (bottom)
+   ============================================================ */
+#tray-panel {
+  height: 110px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255,255,255,0.05);
+  border-top: 1px solid rgba(255,255,255,0.1);
+  overflow: hidden;
+}
+
+#tray-header {
+  padding: 4px 12px 2px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.35);
+  flex-shrink: 0;
+}
+
+#tray-items {
+  flex: 1;
+  overflow: hidden;
+  padding: 4px 8px 6px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 0;                   /* gap handled by equal flex cells */
+}
+
+.tray-item {
+  flex: 1;
+  height: 80px;
+  min-width: 0;
+  border-radius: 8px;
+  background: rgba(255,255,255,0.08);
+  border: 1.5px solid rgba(255,255,255,0.12);
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  margin: 0 3px;
+  transition: background 0.15s, border-color 0.15s;
+  touch-action: none;
+}
+.tray-item:active { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.4); }
+.tray-item canvas { display: block; max-width: 100%; max-height: 100%; }
+
+#canvas-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  min-height: 0;
+}
+
+/* ============================================================
+   TOP BAR
+   ============================================================ */
+#top-bar {
+  height: 44px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: rgba(0,0,0,0.7);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  gap: 10px;
+}
+
+#stars-display {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+}
+.star { font-size: 1.1rem; }
+.star.filled { color: #FFD700; }
+.star.empty  { color: rgba(255,255,255,0.25); }
+
+#score-display {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #4ade80;
+  letter-spacing: 0.02em;
+  min-width: 48px;
+}
+
+#ship-btn {
+  min-height: 34px;
+  padding: 6px 14px;
+  background: linear-gradient(135deg, #f97316, #ef4444);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.04em;
+  touch-action: manipulation;
+  transition: opacity 0.15s, transform 0.1s;
+}
+#ship-btn:active { opacity: 0.8; transform: scale(0.97); }
+
+#dev-toggle-btn {
+  min-width: 36px;
+  min-height: 34px;
+  padding: 4px 8px;
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.2);
+  border-radius: 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+#dev-toggle-btn:hover  { background: rgba(255,255,255,0.18); }
+#dev-toggle-btn:active { background: rgba(255,255,255,0.25); }
+#dev-toggle-btn.active { background: rgba(249,115,22,0.3); border-color: rgba(249,115,22,0.6); }
+
+#fill-bar-wrap {
+  flex: 1;
+  height: 6px;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  max-width: 140px;
+}
+#fill-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #4ade80, #22d3ee);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+/* ============================================================
+   CANVAS
+   ============================================================ */
+#game-canvas-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  background: #000;
+}
+
+#game-canvas {
+  display: block;
+  touch-action: none;
+  cursor: default;
+  image-rendering: auto;
+}
+
+/* ============================================================
+   DRAG GHOST (DOM layer above canvas)
+   ============================================================ */
+#drag-ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 500;
+  display: none;
+  transform-origin: top left;
+}
+#drag-ghost canvas { display: block; }
+
+/* ============================================================
+   RESULT OVERLAY
+   ============================================================ */
+#result-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.82);
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  z-index: 800;
+  opacity: 0;
+  transition: opacity 0.35s ease;
+}
+#result-overlay.visible {
+  display: flex;
+}
+#result-overlay.faded {
+  opacity: 1;
+}
+
+#result-stars { display: flex; gap: 6px; }
+#result-stars .star { font-size: 2.6rem; }
+
+#result-amount {
+  font-size: 2.8rem;
+  font-weight: 900;
+  color: #4ade80;
+  letter-spacing: -0.01em;
+}
+#result-fill {
+  font-size: 1rem;
+  color: rgba(255,255,255,0.55);
+}
+
+.result-btn {
+  min-width: 130px;
+  min-height: 48px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 10px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: opacity 0.15s, transform 0.1s;
+}
+.result-btn:active { opacity: 0.8; transform: scale(0.97); }
+#btn-retry { background: rgba(255,255,255,0.12); color: #fff; }
+#btn-next  { background: linear-gradient(135deg, #f97316, #ef4444); color: #fff; }
+#result-btns { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+
+/* ============================================================
+   DEV PANEL
+   ============================================================ */
+#dev-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 300px;
+  max-width: 88vw;
+  background: rgba(8,8,18,0.97);
+  color: #e2e8f0;
+  border-left: 1px solid rgba(255,255,255,0.12);
+  border-radius: 0;
+  padding: 14px 16px 20px;
+  font-size: 15px;
+  z-index: 9999;
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  backdrop-filter: blur(12px);
+}
+#dev-panel.visible { display: flex; }
+
+.dev-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #94a3b8;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+#dev-close {
+  background: rgba(255,255,255,0.1);
+  border: none;
+  color: #e2e8f0;
+  font-size: 1.3rem;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  line-height: 1;
+  min-width: 44px;
+  min-height: 36px;
+  touch-action: manipulation;
+}
+
+.dev-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+}
+.dev-row label {
+  width: 72px;
+  flex-shrink: 0;
+  color: #94a3b8;
+  font-size: 13px;
+  font-weight: 600;
+}
+.dev-row input[type="range"] {
+  flex: 1;
+  height: 28px;          /* large touch target */
+  accent-color: #f97316;
+  cursor: pointer;
+  touch-action: none;
+}
+.dev-val {
+  width: 40px;
+  text-align: right;
+  color: #f1f5f9;
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.dev-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.1);
+  margin: 4px 0;
+  flex-shrink: 0;
+}
+
+.dev-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #94a3b8;
+  font-size: 13px;
+  min-height: 40px;
+}
+.dev-toggle {
+  width: 52px; height: 30px;
+  background: #374151; border: none; border-radius: 15px;
+  cursor: pointer; position: relative; transition: background 0.2s;
+  flex-shrink: 0;
+  touch-action: manipulation;
+}
+.dev-toggle.on { background: #f97316; }
+.dev-toggle::after {
+  content: ''; position: absolute;
+  width: 22px; height: 22px;
+  background: #fff; border-radius: 50%;
+  top: 4px; left: 4px;
+  transition: left 0.2s;
+}
+.dev-toggle.on::after { left: 26px; }
+
+#dev-copy-btn {
+  margin-top: 4px;
+  background: rgba(249,115,22,0.2);
+  border: 1px solid rgba(249,115,22,0.5);
+  color: #fb923c;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.15s;
+  min-height: 48px;
+}
+#dev-copy-btn:active { background: rgba(249,115,22,0.35); }
+
+.dev-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 4px;
+  flex-shrink: 0;
+}
+.dev-tab {
+  flex: 1;
+  padding: 10px 6px;
+  background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  min-height: 44px;
+  touch-action: manipulation;
+}
+.dev-tab.active {
+  background: rgba(249,115,22,0.25);
+  border-color: rgba(249,115,22,0.5);
+  color: #fb923c;
+}
+
+.dev-section { display: flex; flex-direction: column; gap: 10px; }
+.dev-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+#bike-reset-btn, #bike-copy-btn, #sides-copy-btn {
+  background: rgba(249,115,22,0.2);
+  border: 1px solid rgba(249,115,22,0.5);
+  color: #fb923c;
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background 0.15s;
+  min-height: 48px;
+}
+#bike-reset-btn { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); color: #94a3b8; }
+#bike-reset-btn:active { background: rgba(255,255,255,0.15); }
+#bike-copy-btn:active, #sides-copy-btn:active { background: rgba(249,115,22,0.35); }
+
+#dev-hint {
+  font-size: 11px;
+  color: rgba(255,255,255,0.2);
+  text-align: center;
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+/* Color picker — large touch-friendly swatch */
+.dev-color-pick {
+  flex: 1;
+  height: 40px;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  padding: 2px;
+  background: none;
+  touch-action: manipulation;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.dev-color-pick::-webkit-color-swatch-wrapper { padding: 0; border-radius: 6px; }
+.dev-color-pick::-webkit-color-swatch { border: none; border-radius: 6px; }
+.dev-color-pick::-moz-color-swatch { border: none; border-radius: 6px; }
+.dev-color-hex {
+  font-size: 12px;
+  font-family: monospace;
+  width: 52px;
+}
+</style>
+</head>
+<body>
+
+<!-- Orientation gate -->
+<div id="rotate-prompt">
+  <div class="icon">📱</div>
+  <p>Rotate your phone to landscape</p>
+</div>
+
+<!-- Game root -->
+<div id="game-root">
+
+  <!-- TOP: top bar + canvas (fills remaining height) -->
+  <div id="canvas-wrapper">
+    <div id="top-bar">
+      <div id="stars-display">
+        <span class="star empty">★</span>
+        <span class="star empty">★</span>
+        <span class="star empty">★</span>
+      </div>
+      <div id="score-display">$0</div>
+      <div id="fill-bar-wrap"><div id="fill-bar"></div></div>
+      <button id="ship-btn">🚚 Ship It!</button>
+      <button id="dev-toggle-btn" title="Box Config (Ctrl+D)">⚙️</button>
+    </div>
+    <div id="game-canvas-wrap">
+      <canvas id="game-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- BOTTOM: horizontal item tray -->
+  <div id="tray-panel">
+    <div id="tray-header">Items — drag onto the bike rack</div>
+    <div id="tray-items"></div>
+  </div>
+
+</div>
+
+<!-- Drag ghost (follows pointer above everything) -->
+<div id="drag-ghost"><canvas id="ghost-canvas"></canvas></div>
+
+<!-- Result overlay -->
+<div id="result-overlay">
+  <div id="result-stars">
+    <span class="star empty">★</span>
+    <span class="star empty">★</span>
+    <span class="star empty">★</span>
+  </div>
+  <div id="result-amount">$0</div>
+  <div id="result-fill">0% packed</div>
+  <div id="result-btns">
+    <button class="result-btn" id="btn-retry">↩ Try Again</button>
+    <button class="result-btn" id="btn-next">Next Level →</button>
+  </div>
+</div>
+
+<!-- Dev config panel -->
+<div id="dev-panel">
+  <div class="dev-header">
+    <span>⚙ Config</span>
+    <button id="dev-close">×</button>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="dev-tabs">
+    <button class="dev-tab active" id="tab-box"   data-tab="box">📦 Main</button>
+    <button class="dev-tab"        id="tab-sides" data-tab="sides">🎒 Sides</button>
+    <button class="dev-tab"        id="tab-bike"  data-tab="bike">🏍️ Bike</button>
+  </div>
+
+  <!-- BOX section -->
+  <div class="dev-section" id="section-box">
+    <div class="dev-row">
+      <label>X</label>
+      <input type="range" id="cfg-x" min="0" max="800" step="1" value="60">
+      <span class="dev-val" id="val-x">60</span>
+    </div>
+    <div class="dev-row">
+      <label>Y</label>
+      <input type="range" id="cfg-y" min="0" max="400" step="1" value="80">
+      <span class="dev-val" id="val-y">80</span>
+    </div>
+    <div class="dev-row">
+      <label>Width</label>
+      <input type="range" id="cfg-w" min="40" max="600" step="1" value="220">
+      <span class="dev-val" id="val-w">220</span>
+    </div>
+    <div class="dev-row">
+      <label>Height</label>
+      <input type="range" id="cfg-h" min="30" max="380" step="1" value="200">
+      <span class="dev-val" id="val-h">200</span>
+    </div>
+    <div class="dev-divider"></div>
+    <div class="dev-toggle-row">
+      <span>Show outline</span>
+      <button class="dev-toggle on" id="tog-outline"></button>
+    </div>
+    <div class="dev-toggle-row">
+      <span>Show fill</span>
+      <button class="dev-toggle on" id="tog-fill"></button>
+    </div>
+    <div class="dev-row">
+      <label>Opacity</label>
+      <input type="range" id="cfg-alpha" min="0" max="1" step="0.05" value="0.25">
+      <span class="dev-val" id="val-alpha">0.25</span>
+    </div>
+    <div class="dev-row">
+      <label>Color</label>
+      <input type="color" id="cfg-color" value="#64dcaa" class="dev-color-pick">
+      <span class="dev-val dev-color-hex" id="val-color">#64dcaa</span>
+    </div>
+    <div class="dev-divider"></div>
+    <button id="dev-copy-btn">📋 Copy box config</button>
+  </div>
+
+  <!-- SIDES section — mirrored, single params -->
+  <div class="dev-section" id="section-sides" style="display:none">
+    <div class="dev-section-label">Both side boxes (mirrored)</div>
+    <div class="dev-row">
+      <label>X</label>
+      <input type="range" id="s-x" min="0" max="800" step="1" value="480">
+      <span class="dev-val" id="val-s-x">480</span>
+    </div>
+    <div class="dev-row">
+      <label>Top Y</label>
+      <input type="range" id="s-y" min="0" max="380" step="1" value="60">
+      <span class="dev-val" id="val-s-y">60</span>
+    </div>
+    <div class="dev-row">
+      <label>Width</label>
+      <input type="range" id="s-w" min="20" max="500" step="1" value="200">
+      <span class="dev-val" id="val-s-w">200</span>
+    </div>
+    <div class="dev-row">
+      <label>Height</label>
+      <input type="range" id="s-h" min="10" max="300" step="1" value="130">
+      <span class="dev-val" id="val-s-h">130</span>
+    </div>
+    <div class="dev-row">
+      <label>Spacing</label>
+      <input type="range" id="s-gap" min="0" max="100" step="1" value="10">
+      <span class="dev-val" id="val-s-gap">10</span>
+    </div>
+    <div class="dev-divider"></div>
+    <div class="dev-section-label">Colors</div>
+    <div class="dev-row">
+      <label>Top</label>
+      <input type="color" id="s-color2" value="#64a0ff" class="dev-color-pick">
+      <span class="dev-val dev-color-hex" id="val-s-color2">#64a0ff</span>
+    </div>
+    <div class="dev-row">
+      <label>Bottom</label>
+      <input type="color" id="s-color3" value="#ffa064" class="dev-color-pick">
+      <span class="dev-val dev-color-hex" id="val-s-color3">#ffa064</span>
+    </div>
+    <div class="dev-divider"></div>
+    <button id="sides-copy-btn">📋 Copy sides config</button>
+  </div>
+
+  <!-- BIKE section -->
+  <div class="dev-section" id="section-bike" style="display:none">
+    <div class="dev-row">
+      <label>X</label>
+      <input type="range" id="bike-x" min="-400" max="400" step="1" value="0">
+      <span class="dev-val" id="val-bike-x">0</span>
+    </div>
+    <div class="dev-row">
+      <label>Y</label>
+      <input type="range" id="bike-y" min="-200" max="200" step="1" value="0">
+      <span class="dev-val" id="val-bike-y">0</span>
+    </div>
+    <div class="dev-row">
+      <label>Width</label>
+      <input type="range" id="bike-w" min="200" max="1600" step="4" value="800">
+      <span class="dev-val" id="val-bike-w">800</span>
+    </div>
+    <div class="dev-row">
+      <label>Height</label>
+      <input type="range" id="bike-h" min="100" max="800" step="4" value="400">
+      <span class="dev-val" id="val-bike-h">400</span>
+    </div>
+    <div class="dev-divider"></div>
+    <button id="bike-reset-btn">↺ Reset to defaults</button>
+    <button id="bike-copy-btn">📋 Copy bike config</button>
+  </div>
+
+  <div id="dev-hint">Ctrl+D or long-press corner to toggle</div>
+</div>
+
+<script>
+'use strict';
+// ================================================================
+// POLYFILLS
+// ================================================================
+// roundRect — available in Chrome 99+, Firefox 112+, Safari 15.4+
+// Polyfill for older mobile browsers
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, r) {
+    const R = Math.min(typeof r === 'number' ? r : r[0], w/2, h/2);
+    this.moveTo(x+R, y);
+    this.lineTo(x+w-R, y);
+    this.arcTo(x+w, y,   x+w, y+R,   R);
+    this.lineTo(x+w, y+h-R);
+    this.arcTo(x+w, y+h, x+w-R, y+h, R);
+    this.lineTo(x+R, y+h);
+    this.arcTo(x,   y+h, x,   y+h-R, R);
+    this.lineTo(x,  y+R);
+    this.arcTo(x,   y,   x+R, y,     R);
+    this.closePath();
+    return this;
+  };
+}
+// ================================================================
+// SECTION 1: CONSTANTS
+// ================================================================
+const DESIGN_W = 800;
+const DESIGN_H = 400;
+const REWARDS  = [0, 15, 28, 40]; // indexed by star count 0-3
+
+// ================================================================
+// SECTION 2: STATE
+// ================================================================
+const state = {
+  scale: 1,
+  offsetX: 0,
+  offsetY: 0,
+  canvasX: 0, // canvas element left offset in CSS px
+  canvasY: 0,
+
+  box: {
+    x: 60, y: 80, w: 220, h: 200,
+    polygon: [], color: '#64dcaa'
+  },
+
+  // Side boxes mirror each other — only box2 params + spacing are authoritative
+  sideSpacing: 10,
+  box2: { x: 480, y: 60,  w: 200, h: 130, polygon: [], color: '#64a0ff' },
+  box3: { x: 480, y: 200, w: 200, h: 130, polygon: [], color: '#ffa064' },
+
+  items: [],
+  placedItems: [],
+
+  dragging: null, // { item, offsetX, offsetY }
+  dragLX: 0, dragLY: 0, // logical coords of drag
+  dragValid: false,
+  dragTargetBox: null,
+
+  phase: 'playing', // 'playing' | 'result'
+  fillPct: 0,
+  stars: 0,
+
+  bikeImg: null,
+  bikeReady: false,
+
+  bike: {
+    x: 0, y: 0, w: 800, h: 400,
+  },
+
+  devVisible: false,
+  devShowOutline: true,
+  devShowFill: true,
+  devFillAlpha: 0.25,
+
+  longPressTimer: null,
+};
+
+function boxToPolygon(b) {
+  return [[b.x,b.y],[b.x+b.w,b.y],[b.x+b.w,b.y+b.h],[b.x,b.y+b.h]];
+}
+
+// Mirror: box3 copies x, w, h from box2; y = box2.y + box2.h + sideSpacing
+function applyMirrorSides() {
+  state.box3.x = state.box2.x;
+  state.box3.w = state.box2.w;
+  state.box3.h = state.box2.h;
+  state.box3.y = state.box2.y + state.box2.h + state.sideSpacing;
+  state.box2.polygon = boxToPolygon(state.box2);
+  state.box3.polygon = boxToPolygon(state.box3);
+}
+
+state.box.polygon  = boxToPolygon(state.box);
+applyMirrorSides();
+
+// ================================================================
+// SECTION 3: SAT COLLISION
+// ================================================================
+function vecSub(a, b)  { return [a[0]-b[0], a[1]-b[1]]; }
+function vecDot(a, b)  { return a[0]*b[0] + a[1]*b[1]; }
+function vecPerp(v)    { return [-v[1], v[0]]; }
+function vecLen(v)     { return Math.sqrt(v[0]*v[0]+v[1]*v[1]); }
+function vecNorm(v)    { const l=vecLen(v); return l<1e-9?[0,0]:[v[0]/l,v[1]/l]; }
+
+function getAxes(poly) {
+  const axes = [];
+  for (let i=0;i<poly.length;i++) {
+    const a = poly[i], b = poly[(i+1)%poly.length];
+    axes.push(vecNorm(vecPerp(vecSub(b,a))));
+  }
+  return axes;
+}
+
+function projectPoly(poly, axis) {
+  let min = Infinity, max = -Infinity;
+  for (const p of poly) {
+    const d = vecDot(p, axis);
+    if (d<min) min=d;
+    if (d>max) max=d;
+  }
+  return {min,max};
+}
+
+function projOverlap(a, b) {
+  return a.max >= b.min && b.max >= a.min;
+}
+
+function satConvex(polyA, polyB) {
+  const axes = [...getAxes(polyA), ...getAxes(polyB)];
+  for (const ax of axes) {
+    if (!projOverlap(projectPoly(polyA,ax), projectPoly(polyB,ax))) return false;
+  }
+  return true;
+}
+
+function worldPoly(localPoly, x, y) {
+  return localPoly.map(([px,py]) => [px+x, py+y]);
+}
+
+function pointInPolygon(pt, poly) {
+  let inside = false;
+  const [px,py] = pt;
+  for (let i=0,j=poly.length-1; i<poly.length; j=i++) {
+    const [xi,yi]=poly[i], [xj,yj]=poly[j];
+    if (((yi>py)!==(yj>py)) && (px < (xj-xi)*(py-yi)/(yj-yi)+xi)) inside=!inside;
+  }
+  return inside;
+}
+
+function fitsInBox(itemPoly, box) {
+  for (const pt of itemPoly) {
+    if (!pointInPolygon(pt, box.polygon)) return false;
+  }
+  return true;
+}
+
+function itemsOverlap(itemA, aX, aY, itemB, bX, bY) {
+  const subsA = itemA.subPolygons || [itemA.collider];
+  const subsB = itemB.subPolygons || [itemB.collider];
+  for (const sA of subsA) {
+    const wA = worldPoly(sA, aX, aY);
+    for (const sB of subsB) {
+      const wB = worldPoly(sB, bX, bY);
+      if (satConvex(wA, wB)) return true;
+    }
+  }
+  return false;
+}
+
+function polygonArea(poly) {
+  let area = 0;
+  for (let i=0;i<poly.length;i++) {
+    const j=(i+1)%poly.length;
+    area += poly[i][0]*poly[j][1];
+    area -= poly[j][0]*poly[i][1];
+  }
+  return Math.abs(area)/2;
+}
+
+// Compute centroid of a polygon
+function polyCentroid(poly) {
+  let cx = 0, cy = 0;
+  for (const [x,y] of poly) { cx += x; cy += y; }
+  return [cx/poly.length, cy/poly.length];
+}
+
+// Rotate polygon points around their own centroid, return NEW polygon
+// with top-left normalised to (0,0)
+function rotatePoly(poly, deg) {
+  const rad = deg * Math.PI / 180;
+  const [cx, cy] = polyCentroid(poly);
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  const rotated = poly.map(([x,y]) => [
+    cx + (x-cx)*cos - (y-cy)*sin,
+    cy + (x-cx)*sin + (y-cy)*cos,
+  ]);
+  // Normalise so min x=0, min y=0
+  const minX = Math.min(...rotated.map(p=>p[0]));
+  const minY = Math.min(...rotated.map(p=>p[1]));
+  return rotated.map(([x,y]) => [x-minX, y-minY]);
+}
+
+// Bake a rotation angle into an item clone (collider, subPolygons, w, h, spawnAngleDeg)
+function applyRotationToItem(item, deg) {
+  // Normalise to 0-360
+  const angle = ((deg % 360) + 360) % 360;
+  if (angle === 0) { item.spawnAngleDeg = 0; return; }
+
+  item.spawnAngleDeg = angle;
+
+  // Rotate main collider
+  item.collider = rotatePoly(item.collider, angle);
+
+  // Rotate sub-polygons if present
+  if (item.subPolygons) {
+    // We need all sub-polys to share the same translation offset as the main collider
+    // So rotate them with the original centroid of the main collider before normalisation
+    const rad = angle * Math.PI / 180;
+    // Get centroid from ORIGINAL collider before we replaced it
+    // We'll re-derive from the now-rotated collider's bounding box centre
+    const bboxCX = (Math.min(...item.collider.map(p=>p[0])) + Math.max(...item.collider.map(p=>p[0]))) / 2;
+    const bboxCY = (Math.min(...item.collider.map(p=>p[1])) + Math.max(...item.collider.map(p=>p[1]))) / 2;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    // For sub-polys: rotate each around the same origin used for main collider
+    // Since rotatePoly normalises to 0,0 we need to do the same transform consistently.
+    // Simplest: re-run rotatePoly on each sub independently (they'll normalise to their own 0,0)
+    // then offset them to match their position relative to the main collider bounding box.
+    // Actually cleanest: rotate all vertices of all sub-polys as a group, then normalise together.
+    const allVerts = item.subPolygons.flat();
+    const [origCX, origCY] = polyCentroid(allVerts);
+    const rotatedSubs = item.subPolygons.map(sub =>
+      sub.map(([x,y]) => [
+        origCX + (x-origCX)*cos - (y-origCY)*sin,
+        origCY + (x-origCX)*sin + (y-origCY)*cos,
+      ])
+    );
+    // Normalise by same minX/minY as the group
+    const allRotated = rotatedSubs.flat();
+    const minX = Math.min(...allRotated.map(p=>p[0]));
+    const minY = Math.min(...allRotated.map(p=>p[1]));
+    item.subPolygons = rotatedSubs.map(sub => sub.map(([x,y]) => [x-minX, y-minY]));
+  }
+
+  // Recalculate bounding box from rotated collider
+  const xs = item.collider.map(p=>p[0]);
+  const ys = item.collider.map(p=>p[1]);
+  item.w = Math.ceil(Math.max(...xs));
+  item.h = Math.ceil(Math.max(...ys));
+}
+
+// ================================================================
+// SECTION 4: ITEM DEFINITIONS
+// ================================================================
+
+// Helper: build a star polygon (points, outer radius, inner radius, cx, cy)
+function starPoly(pts, ro, ri, cx, cy) {
+  const p = [];
+  for (let i = 0; i < pts * 2; i++) {
+    const a = (i / (pts * 2)) * Math.PI * 2 - Math.PI / 2;
+    const r = i % 2 === 0 ? ro : ri;
+    p.push([cx + r * Math.cos(a), cy + r * Math.sin(a)]);
+  }
+  return p;
+}
+
+// Helper: build an ellipse polygon (n-gon approximation)
+function ellipsePoly(rx, ry, cx, cy, n=12) {
+  const p = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    p.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)]);
+  }
+  return p;
+}
+
+function makeItems() {
+  return [
+    // Items — sizes span tiny (30px) to large (130px) for variety
+    // ── SUITCASE: large 130×85 ───────────────────────────────────
+    {
+      id: 'suitcase', label: 'Suitcase',
+      collider: [[8,0],[122,0],[130,10],[130,75],[122,85],[8,85],[0,75],[0,10]],
+      subPolygons: null, w: 130, h: 85,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#7c3aed'; ctx.beginPath(); ctx.roundRect(x,y,130,85,10); ctx.fill();
+        ctx.fillStyle='#a78bfa'; ctx.beginPath(); ctx.roundRect(x+8,y+8,114,69,7); ctx.fill();
+        ctx.fillStyle='#fbbf24'; ctx.fillRect(x+57,y+37,16,11);
+        ctx.strokeStyle='#c4b5fd'; ctx.lineWidth=3;
+        ctx.beginPath(); ctx.roundRect(x+43,y-11,44,13,5); ctx.stroke();
+        ctx.strokeStyle='#c4b5fd'; ctx.lineWidth=1.5; ctx.globalAlpha=alpha*0.35;
+        ctx.beginPath(); ctx.moveTo(x+33,y+8); ctx.lineTo(x+33,y+77); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x+97,y+8); ctx.lineTo(x+97,y+77); ctx.stroke();
+        ctx.restore();
+      }
+    },
+    // ── PINK BAG: small 44×44 ────────────────────────────────────
+    {
+      id: 'pink_bag', label: 'Pink Bag',
+      collider: [[3,0],[41,0],[44,3],[44,41],[41,44],[3,44],[0,41],[0,3]],
+      subPolygons: null, w: 44, h: 44,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#f472b6'; ctx.beginPath(); ctx.roundRect(x,y,44,44,9); ctx.fill();
+        ctx.fillStyle='#fbcfe8'; ctx.beginPath(); ctx.roundRect(x+5,y+5,34,26,5); ctx.fill();
+        ctx.strokeStyle='#be185d'; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.moveTo(x+7,y+4); ctx.lineTo(x+37,y+4); ctx.stroke();
+        ctx.fillStyle='#be185d';
+        for(let i=0;i<3;i++){ctx.beginPath();ctx.arc(x+11+i*11,y+4,1.8,0,Math.PI*2);ctx.fill();}
+        ctx.restore();
+      }
+    },
+    // ── BALL: medium-small 38×38 ─────────────────────────────────
+    {
+      id: 'ball', label: 'Ball',
+      collider: (()=>{ const p=[],r=19,c=19; for(let i=0;i<10;i++){const a=i/10*Math.PI*2; p.push([c+r*Math.cos(a),c+r*Math.sin(a)]);} return p; })(),
+      subPolygons: null, w: 38, h: 38,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        const cx=x+19,cy=y+19,r=17;
+        const g=ctx.createRadialGradient(cx-4,cy-4,2,cx,cy,r);
+        g.addColorStop(0,'#fb923c'); g.addColorStop(1,'#c2410c');
+        ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle='rgba(0,0,0,0.22)'; ctx.lineWidth=1.5;
+        ctx.beginPath(); ctx.moveTo(cx-r,cy); ctx.bezierCurveTo(cx-r+5,cy-7,cx+r-5,cy-7,cx+r,cy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx-r,cy); ctx.bezierCurveTo(cx-r+5,cy+7,cx+r-5,cy+7,cx+r,cy); ctx.stroke();
+        ctx.restore();
+      }
+    },
+    // ── BOOK: medium 82×57 ───────────────────────────────────────
+    {
+      id: 'book_blue', label: 'Book',
+      collider: [[0,0],[82,0],[82,57],[0,57]],
+      subPolygons: null, w: 82, h: 57,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#1d4ed8'; ctx.beginPath(); ctx.roundRect(x,y,82,57,4); ctx.fill();
+        ctx.fillStyle='#3b82f6'; ctx.fillRect(x+9,y+6,64,45);
+        ctx.fillStyle='rgba(255,255,255,0.6)';
+        for(let i=0;i<5;i++) ctx.fillRect(x+13,y+11+i*7,56,3);
+        ctx.fillStyle='#1e3a8a'; ctx.fillRect(x,y,9,57);
+        ctx.restore();
+      }
+    },
+    // ── BOTTLE: tall-thin 28×82 ──────────────────────────────────
+    {
+      id: 'bottle', label: 'Bottle',
+      collider: [[5,0],[23,0],[28,6],[28,76],[23,82],[5,82],[0,76],[0,6]],
+      subPolygons: null, w: 28, h: 82,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#0ea5e9'; ctx.beginPath(); ctx.roundRect(x,y+12,28,70,7); ctx.fill();
+        ctx.fillStyle='#0284c7'; ctx.fillRect(x+7,y,14,15);
+        ctx.fillStyle='#fbbf24'; ctx.beginPath(); ctx.roundRect(x+7,y-5,14,9,3); ctx.fill();
+        ctx.fillStyle='rgba(255,255,255,0.22)'; ctx.beginPath(); ctx.roundRect(x+4,y+26,20,28,4); ctx.fill();
+        ctx.restore();
+      }
+    },
+    // ── HAT: wide-short 95×30 ────────────────────────────────────
+    {
+      id: 'hat', label: 'Hat',
+      collider: [[0,18],[22,0],[73,0],[95,18],[95,30],[0,30]],
+      subPolygons: [[[0,18],[22,0],[73,0],[95,18]],[[0,18],[95,18],[95,30],[0,30]]],
+      w: 95, h: 30,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#92400e'; ctx.beginPath(); ctx.ellipse(x+47,y+27,50,7,0,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='#b45309';
+        ctx.beginPath(); ctx.moveTo(x+12,y+22); ctx.quadraticCurveTo(x+6,y+6,x+47,y); ctx.quadraticCurveTo(x+89,y+6,x+83,y+22); ctx.closePath(); ctx.fill();
+        ctx.fillStyle='#fbbf24'; ctx.fillRect(x+12,y+17,71,6);
+        ctx.restore();
+      }
+    },
+    // ── STAR: large 92×92 ────────────────────────────────────────
+    {
+      id: 'star', label: 'Star',
+      collider: starPoly(5,46,19,46,46),
+      subPolygons: (()=>{
+        const full=starPoly(5,46,19,46,46), c=starPoly(5,19,10,46,46), t=[];
+        for(let i=0;i<5;i++) t.push([full[i*2],full[((i*2)-1+10)%10],full[(i*2+1)%10]]);
+        return [c,...t];
+      })(),
+      w: 92, h: 92,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        const cx=x+46,cy=y+46;
+        const g=ctx.createRadialGradient(cx,cy,5,cx,cy,46);
+        g.addColorStop(0,'#fde68a'); g.addColorStop(1,'#f59e0b');
+        ctx.fillStyle=g; ctx.beginPath();
+        const pts=starPoly(5,44,18,46,46);
+        pts.forEach(([px,py],i)=>i===0?ctx.moveTo(x+px,y+py):ctx.lineTo(x+px,y+py));
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle='#d97706'; ctx.lineWidth=2; ctx.stroke();
+        ctx.restore();
+      }
+    },
+    // ── OVAL: wide 104×42 ────────────────────────────────────────
+    {
+      id: 'oval', label: 'Oval',
+      collider: ellipsePoly(52,21,52,21,12),
+      subPolygons: null, w: 104, h: 42,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        const cx=x+52,cy=y+21;
+        const g=ctx.createRadialGradient(cx-16,cy-7,3,cx,cy,52);
+        g.addColorStop(0,'#a7f3d0'); g.addColorStop(1,'#059669');
+        ctx.fillStyle=g; ctx.beginPath(); ctx.ellipse(cx,cy,50,19,0,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle='#047857'; ctx.lineWidth=2; ctx.stroke();
+        ctx.fillStyle='rgba(255,255,255,0.28)';
+        ctx.beginPath(); ctx.ellipse(cx-16,cy-5,18,7,Math.PI*0.3,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+    },
+    // ── L-SHAPE: tall 52×105 ─────────────────────────────────────
+    {
+      id: 'l_shape', label: 'L-Piece',
+      collider: [[0,0],[17,0],[17,48],[52,48],[52,105],[0,105]],
+      subPolygons: [[[0,0],[17,0],[17,48],[0,48]],[[0,48],[52,48],[52,105],[0,105]]],
+      w: 52, h: 105,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#34d399';
+        ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+17,y); ctx.lineTo(x+17,y+48);
+        ctx.lineTo(x+52,y+48); ctx.lineTo(x+52,y+105); ctx.lineTo(x,y+105); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle='#065f46'; ctx.lineWidth=2; ctx.stroke();
+        ctx.fillStyle='rgba(255,255,255,0.1)';
+        ctx.beginPath(); ctx.moveTo(x+3,y+3); ctx.lineTo(x+14,y+3); ctx.lineTo(x+14,y+51);
+        ctx.lineTo(x+49,y+51); ctx.lineTo(x+49,y+102); ctx.lineTo(x+3,y+102); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    },
+    // ── T-SHAPE: medium 78×68 ────────────────────────────────────
+    {
+      id: 't_shape', label: 'T-Piece',
+      collider: [[0,0],[78,0],[78,23],[50,23],[50,68],[28,68],[28,23],[0,23]],
+      subPolygons: [[[0,0],[78,0],[78,23],[0,23]],[[28,23],[50,23],[50,68],[28,68]]],
+      w: 78, h: 68,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#818cf8';
+        ctx.beginPath(); ctx.roundRect(x,y,78,23,4); ctx.fill();
+        ctx.beginPath(); ctx.roundRect(x+28,y+23,22,45,4); ctx.fill();
+        ctx.strokeStyle='#3730a3'; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.roundRect(x,y,78,23,4); ctx.stroke();
+        ctx.beginPath(); ctx.roundRect(x+28,y+23,22,45,4); ctx.stroke();
+        ctx.fillStyle='rgba(255,255,255,0.32)';
+        for(let i=0;i<4;i++){ctx.beginPath();ctx.arc(x+11+i*18,y+11,3,0,Math.PI*2);ctx.fill();}
+        ctx.restore();
+      }
+    },
+    // ── PLUS: small 54×54 ────────────────────────────────────────
+    {
+      id: 'plus_shape', label: 'Plus',
+      collider: [[17,0],[37,0],[37,17],[54,17],[54,37],[37,37],[37,54],[17,54],[17,37],[0,37],[0,17],[17,17]],
+      subPolygons: [[[17,0],[37,0],[37,54],[17,54]],[[0,17],[54,17],[54,37],[0,37]]],
+      w: 54, h: 54,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#f87171';
+        ctx.beginPath(); ctx.roundRect(x+17,y,20,54,4); ctx.fill();
+        ctx.beginPath(); ctx.roundRect(x,y+17,54,20,4); ctx.fill();
+        ctx.strokeStyle='#b91c1c'; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.roundRect(x+17,y,20,54,4); ctx.stroke();
+        ctx.beginPath(); ctx.roundRect(x,y+17,54,20,4); ctx.stroke();
+        ctx.fillStyle='rgba(255,255,255,0.28)'; ctx.beginPath(); ctx.arc(x+27,y+27,8,0,Math.PI*2); ctx.fill();
+        ctx.restore();
+      }
+    },
+    // ── DIAMOND: small 48×42 ─────────────────────────────────────
+    {
+      id: 'diamond', label: 'Diamond',
+      collider: [[24,0],[48,21],[24,42],[0,21]],
+      subPolygons: [[[24,0],[48,21],[24,42]],[[24,0],[24,42],[0,21]]],
+      w: 48, h: 42,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        const cx=x+24,cy=y+21;
+        const g=ctx.createLinearGradient(x,y,x+48,y+42);
+        g.addColorStop(0,'#67e8f9'); g.addColorStop(0.5,'#06b6d4'); g.addColorStop(1,'#0891b2');
+        ctx.fillStyle=g;
+        ctx.beginPath(); ctx.moveTo(cx,y); ctx.lineTo(x+48,cy); ctx.lineTo(cx,y+42); ctx.lineTo(x,cy); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle='#164e63'; ctx.lineWidth=2; ctx.stroke();
+        ctx.strokeStyle='rgba(255,255,255,0.38)'; ctx.lineWidth=1;
+        ctx.beginPath(); ctx.moveTo(cx,y); ctx.lineTo(cx,y+42); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x,cy); ctx.lineTo(x+48,cy); ctx.stroke();
+        ctx.restore();
+      }
+    },
+    // ── ARROW: medium 88×52 ──────────────────────────────────────
+    {
+      id: 'arrow', label: 'Arrow',
+      collider: [[0,14],[57,14],[57,0],[88,26],[57,52],[57,38],[0,38]],
+      subPolygons: [[[0,14],[57,14],[57,38],[0,38]],[[57,0],[88,26],[57,52]]],
+      w: 88, h: 52,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#fb923c';
+        ctx.beginPath(); ctx.moveTo(x,y+14); ctx.lineTo(x+57,y+14); ctx.lineTo(x+57,y);
+        ctx.lineTo(x+88,y+26); ctx.lineTo(x+57,y+52); ctx.lineTo(x+57,y+38);
+        ctx.lineTo(x,y+38); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle='#c2410c'; ctx.lineWidth=2; ctx.stroke();
+        ctx.strokeStyle='rgba(255,255,255,0.28)'; ctx.lineWidth=2;
+        ctx.beginPath(); ctx.moveTo(x+16,y+19); ctx.lineTo(x+16,y+33); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(x+32,y+19); ctx.lineTo(x+32,y+33); ctx.stroke();
+        ctx.restore();
+      }
+    },
+    // ── CRESCENT: small 58×46 ────────────────────────────────────
+    {
+      id: 'crescent', label: 'Moon',
+      collider: [[14,0],[38,2],[52,10],[58,23],[52,36],[38,44],[14,46],[7,38],[13,29],[18,23],[13,17],[7,8]],
+      subPolygons: [
+        [[14,0],[38,2],[52,10],[18,23],[13,17],[7,8]],
+        [[18,23],[52,10],[58,23],[52,36],[38,44],[14,46],[7,38],[13,29]]
+      ],
+      w: 58, h: 46,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#fde68a'; ctx.beginPath(); ctx.arc(x+33,y+23,21,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='#1e1b4b'; ctx.beginPath(); ctx.arc(x+40,y+20,16,0,Math.PI*2); ctx.fill();
+        ctx.fillStyle='#fde68a';
+        [[x+7,y+9],[x+4,y+24],[x+10,y+38]].forEach(([sx,sy])=>{ctx.beginPath();ctx.arc(sx,sy,1.8,0,Math.PI*2);ctx.fill();});
+        ctx.restore();
+      }
+    },
+    // ── Z-SHAPE: wide 90×55 ──────────────────────────────────────
+    {
+      id: 'z_shape', label: 'Z-Block',
+      collider: [[0,0],[50,0],[50,27],[90,27],[90,55],[40,55],[40,27],[0,27]],
+      subPolygons: [[[0,0],[50,0],[50,27],[0,27]],[[40,27],[90,27],[90,55],[40,55]]],
+      w: 90, h: 55,
+      draw(ctx, x, y, alpha=1) {
+        ctx.save(); ctx.globalAlpha=alpha;
+        ctx.fillStyle='#a3e635';
+        ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(x+50,y); ctx.lineTo(x+50,y+27);
+        ctx.lineTo(x+90,y+27); ctx.lineTo(x+90,y+55); ctx.lineTo(x+40,y+55);
+        ctx.lineTo(x+40,y+27); ctx.lineTo(x,y+27); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle='#365314'; ctx.lineWidth=2; ctx.stroke();
+        ctx.fillStyle='rgba(255,255,255,0.1)';
+        ctx.beginPath(); ctx.moveTo(x+3,y+3); ctx.lineTo(x+47,y+3); ctx.lineTo(x+47,y+24);
+        ctx.lineTo(x+87,y+24); ctx.lineTo(x+87,y+52); ctx.lineTo(x+43,y+52);
+        ctx.lineTo(x+43,y+24); ctx.lineTo(x+3,y+24); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    },
+  ];
+}
+
+// ================================================================
+// SECTION 5: LEVEL DATA
+// ================================================================
+const levels = [
+  { id: 1, box: { x: 60, y: 80, w: 220, h: 200 }, targetFill: 0.65 },
+  { id: 2, box: { x: 60, y: 70, w: 250, h: 240 }, targetFill: 0.7  },
+];
+let currentLevel = 0;
+
+
+// ================================================================
+// SECTION 6: SCALING
+// ================================================================
+const canvas    = document.getElementById('game-canvas');
+const ctx       = canvas.getContext('2d');
+
+function computeScale() {
+  const wrap = document.getElementById('game-canvas-wrap');
+  const rect = wrap.getBoundingClientRect();
+  const availW = rect.width;
+  const availH = rect.height;
+  const sx = availW  / DESIGN_W;
+  const sy = availH  / DESIGN_H;
+  state.scale = Math.min(sx, sy);
+  state.offsetX = (availW  - DESIGN_W * state.scale) / 2;
+  state.offsetY = (availH  - DESIGN_H * state.scale) / 2;
+}
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = Math.round(DESIGN_W * state.scale);
+  const cssH = Math.round(DESIGN_H * state.scale);
+  canvas.width  = cssW * dpr;
+  canvas.height = cssH * dpr;
+  canvas.style.width  = cssW + 'px';
+  canvas.style.height = cssH + 'px';
+  ctx.setTransform(state.scale * dpr, 0, 0, state.scale * dpr, 0, 0);
+}
+
+function toLogical(cssX, cssY) {
+  const canvasRect = canvas.getBoundingClientRect();
+  return [
+    (cssX - canvasRect.left) / state.scale,
+    (cssY - canvasRect.top)  / state.scale
+  ];
+}
+
+// ================================================================
+// SECTION 7: RENDER
+// ================================================================
+function render() {
+  ctx.clearRect(0, 0, DESIGN_W, DESIGN_H);
+
+  // 1. Bike image
+  if (state.bikeReady) {
+    ctx.drawImage(state.bikeImg, state.bike.x, state.bike.y, state.bike.w, state.bike.h);
+  } else {
+    ctx.fillStyle = '#111';
+    ctx.fillRect(0, 0, DESIGN_W, DESIGN_H);
+  }
+
+  // 2. Draw all cargo boxes
+  drawBox(state.box);
+  drawBox(state.box2);
+  drawBox(state.box3);
+
+  // 3. Placed items
+  for (const pi of state.placedItems) {
+    drawItem(ctx, pi.item, pi.x, pi.y, 1);
+  }
+
+  // 4. Drag ghost on canvas
+  if (state.dragging) {
+    const it = state.dragging.item;
+    const lx = state.dragLX - state.dragging.offsetX;
+    const ly = state.dragLY - state.dragging.offsetY;
+    drawItem(ctx, it, lx, ly, 0.72);
+    // Validity outline — follows rotated collider exactly
+    const testPoly = worldPoly(it.collider, lx, ly);
+    const valid = state.dragValid;
+    ctx.strokeStyle = valid ? '#4ade80' : '#f87171';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4,2]);
+    ctx.beginPath();
+    testPoly.forEach(([px,py],i) => i===0 ? ctx.moveTo(px,py) : ctx.lineTo(px,py));
+    ctx.closePath(); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
+// Draw an item at (x, y) with its baked-in spawn rotation applied.
+// The item's collider is already rotated; here we rotate the canvas visuals to match.
+// Convert #rrggbb hex to "r,g,b" string for rgba()
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return `${(n>>16)&255},${(n>>8)&255},${n&255}`;
+}
+
+// Draw a single cargo box overlay — color comes from b.color
+function drawBox(b) {
+  const rgb = hexToRgb(b.color);
+  if (state.devShowFill) {
+    ctx.fillStyle = `rgba(${rgb},${state.devFillAlpha})`;
+    ctx.fillRect(b.x, b.y, b.w, b.h);
+  }
+  if (state.devShowOutline || state.devVisible) {
+    ctx.strokeStyle = b.color;
+    ctx.lineWidth = state.devVisible ? 2.5 : 1.5;
+    ctx.setLineDash(state.devVisible ? [6,3] : []);
+    ctx.strokeRect(b.x, b.y, b.w, b.h);
+    ctx.setLineDash([]);
+  }
+}
+
+function drawItem(ctx, item, x, y, alpha) {
+  const deg = item.spawnAngleDeg || 0;
+  if (deg === 0) {
+    item.draw(ctx, x, y, alpha);
+    return;
+  }
+  // The collider was rotated around the original shape's centroid, then normalised to 0,0.
+  // The visual also needs to rotate around the original shape's centre.
+  // Original shape centre = (origW/2, origH/2). After rotation the bounding box is w x h.
+  // We translate so the rotated bounding box top-left lands at (x, y).
+  const rad = deg * Math.PI / 180;
+  const cx = x + item.w / 2;   // centre of rotated bounding box
+  const cy = y + item.h / 2;
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rad);
+  // Draw at (-origW/2, -origH/2) — item.draw uses top-left convention
+  item.draw(ctx, -item.origW / 2, -item.origH / 2, alpha);
+  ctx.restore();
+}
+
+function updateFillBar() {
+  const pct = calcFillPercent();
+  document.getElementById('fill-bar').style.width = pct + '%';
+}
+
+function calcFillPercent() {
+  if (state.placedItems.length === 0) return 0;
+  const totalBoxArea = state.box.w * state.box.h
+                     + state.box2.w * state.box2.h
+                     + state.box3.w * state.box3.h;
+  let filled = 0;
+  for (const pi of state.placedItems) {
+    filled += polygonArea(worldPoly(pi.item.collider, 0, 0));
+  }
+  return Math.min(filled / totalBoxArea * 100, 100);
+}
+
+// ================================================================
+// SECTION 8: TRAY
+// ================================================================
+const TRAY_MAX = 10;
+
+function buildTray() {
+  const container = document.getElementById('tray-items');
+  container.innerHTML = '';
+
+  const unplaced = state.items.filter(it => !it.placed).slice(0, TRAY_MAX);
+
+  // Always render TRAY_MAX slots so spacing stays even —
+  // empty slots are transparent placeholders
+  for (let slot = 0; slot < TRAY_MAX; slot++) {
+    const item = unplaced[slot];
+    const div = document.createElement('div');
+    div.className = 'tray-item';
+
+    if (!item) {
+      // Empty placeholder — keeps equal spacing
+      div.style.opacity = '0';
+      div.style.pointerEvents = 'none';
+      container.appendChild(div);
+      continue;
+    }
+
+    div.dataset.id = item.id;
+
+    // Scale item to fit cell — cell is flex so use fixed inner area
+    const maxH = 66, maxW = 72;
+    const scale = Math.min(maxW / item.w, maxH / item.h, 1);
+    const pw = Math.round(item.w * scale);
+    const ph = Math.round(item.h * scale);
+
+    const pc = document.createElement('canvas');
+    pc.width = pw; pc.height = ph;
+    pc.style.width = pw + 'px'; pc.style.height = ph + 'px';
+    const pctx = pc.getContext('2d');
+    pctx.scale(scale, scale);
+    drawItem(pctx, item, 0, 0, 1);
+    div.appendChild(pc);
+
+    div.addEventListener('pointerdown', e => onTrayPointerDown(e, item), {passive:false});
+    container.appendChild(div);
+  }
+}
+
+// ================================================================
+// SECTION 9: DRAG & DROP
+// ================================================================
+let activePointerId = null;
+let dragStarted = false;
+let pointerStartX = 0, pointerStartY = 0;
+
+function onTrayPointerDown(e, item) {
+  if (e.button !== undefined && e.button !== 0) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  pointerStartX = e.clientX;
+  pointerStartY = e.clientY;
+  dragStarted = false;
+
+  // We'll wait for pointermove to confirm drag intent vs tray scroll
+  activePointerId = e.pointerId;
+
+  const onMove = (ev) => {
+    if (ev.pointerId !== activePointerId) return;
+    const dx = ev.clientX - pointerStartX;
+    const dy = ev.clientY - pointerStartY;
+    if (!dragStarted && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+      dragStarted = true;
+      const [lx, ly] = toLogical(ev.clientX, ev.clientY);
+      // Center the item under the finger
+      state.dragging = {
+        item,
+        offsetX: item.w / 2,
+        offsetY: item.h / 2,
+      };
+      state.dragLX = lx;
+      state.dragLY = ly;
+      item.placed = true; // temporarily remove from tray
+      buildTray();
+      canvas.setPointerCapture(activePointerId);
+      updateDragValidity();
+      render();
+    }
+    if (dragStarted) {
+      const [lx,ly] = toLogical(ev.clientX, ev.clientY);
+      state.dragLX = lx;
+      state.dragLY = ly;
+      updateDragValidity();
+      render();
+    }
+  };
+
+  const onUp = (ev) => {
+    if (ev.pointerId !== activePointerId) return;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+
+    if (!dragStarted || !state.dragging) {
+      // Tap — no drag: return item to tray
+      item.placed = false;
+      buildTray();
+      return;
+    }
+
+    const [lx, ly] = toLogical(ev.clientX, ev.clientY);
+    state.dragLX = lx;
+    state.dragLY = ly;
+    dropItem();
+  };
+
+  window.addEventListener('pointermove', onMove, {passive:false});
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+}
+
+function onCanvasPointerDown(e) {
+  if (e.button !== undefined && e.button !== 0) return;
+  // Check if we tapped a placed item to re-drag it
+  const [lx,ly] = toLogical(e.clientX, e.clientY);
+  const hit = hitTestPlaced(lx,ly);
+  if (!hit) return;
+  e.preventDefault();
+
+  activePointerId = e.pointerId;
+  dragStarted = true;
+
+  // Find where item was placed so we can use natural grab offset
+  const placedEntry = state.placedItems.find(pi => pi.item === hit);
+  const placedX = placedEntry ? placedEntry.x : lx - hit.w/2;
+  const placedY = placedEntry ? placedEntry.y : ly - hit.h/2;
+
+  // Remove from placed list
+  state.placedItems = state.placedItems.filter(pi => pi.item !== hit);
+  hit.placed = true; // mark as "in flight"
+
+  // offsetX/Y = distance from item top-left to pointer
+  state.dragging = {
+    item: hit,
+    offsetX: lx - placedX,
+    offsetY: ly - placedY,
+  };
+  // dragLX/dragLY = pointer in logical space (item position = dragLX - offsetX)
+  state.dragLX = lx;
+  state.dragLY = ly;
+
+  buildTray();
+  canvas.setPointerCapture(activePointerId);
+  updateDragValidity();
+  render();
+
+  const onMove = (ev) => {
+    if (ev.pointerId !== activePointerId) return;
+    const [lx2,ly2] = toLogical(ev.clientX, ev.clientY);
+    state.dragLX = lx2;
+    state.dragLY = ly2;
+    updateDragValidity();
+    render();
+  };
+  const onUp = (ev) => {
+    if (ev.pointerId !== activePointerId) return;
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+    const [lx3,ly3] = toLogical(ev.clientX, ev.clientY);
+    state.dragLX = lx3;
+    state.dragLY = ly3;
+    dropItem();
+  };
+  window.addEventListener('pointermove', onMove, {passive:false});
+  window.addEventListener('pointerup', onUp);
+  window.addEventListener('pointercancel', onUp);
+}
+
+function hitTestPlaced(lx, ly) {
+  for (let i = state.placedItems.length-1; i >= 0; i--) {
+    const pi = state.placedItems[i];
+    const wp = worldPoly(pi.item.collider, pi.x, pi.y);
+    if (pointInPolygon([lx,ly], wp)) return pi.item;
+  }
+  return null;
+}
+
+function updateDragValidity() {
+  if (!state.dragging) return;
+  const it = state.dragging;
+  const ix = state.dragLX - it.offsetX;
+  const iy = state.dragLY - it.offsetY;
+  const testPoly = worldPoly(it.item.collider, ix, iy);
+
+  // Valid if fits in ANY of the three boxes
+  const boxes = [state.box, state.box2, state.box3];
+  const inABox = boxes.some(b => fitsInBox(testPoly, b));
+  if (!inABox) { state.dragValid = false; state.dragTargetBox = null; return; }
+
+  // Which box are we in?
+  const targetBox = boxes.find(b => fitsInBox(testPoly, b));
+  state.dragTargetBox = targetBox;
+
+  // Overlap check against all placed items (excluding self)
+  for (const pi of state.placedItems) {
+    if (pi.item === it.item) continue;
+    if (itemsOverlap(it.item, ix, iy, pi.item, pi.x, pi.y)) {
+      state.dragValid = false; return;
+    }
+  }
+  state.dragValid = true;
+}
+
+function dropItem() {
+  const it = state.dragging;
+  const ix = state.dragLX - it.offsetX;
+  const iy = state.dragLY - it.offsetY;
+
+  if (state.dragValid) {
+    // Lock in place
+    state.placedItems.push({ item: it.item, x: ix, y: iy });
+    it.item.placed = true;
+  } else {
+    // Return to tray
+    it.item.placed = false;
+  }
+
+  state.dragging = null;
+  state.dragValid = false;
+  buildTray();
+  updateFillBar();
+  render();
+}
+
+// ================================================================
+// SECTION 10: SCORING
+// ================================================================
+function shipIt() {
+  const pct = calcFillPercent();
+  state.fillPct = pct;
+
+  let stars = 0;
+  if (pct >= 90) stars = 3;
+  else if (pct >= 70) stars = 2;
+  else if (pct >= 50) stars = 1;
+  state.stars = stars;
+
+  const reward = REWARDS[stars];
+
+  // Update top bar stars
+  updateTopBarStars(stars);
+  document.getElementById('score-display').textContent = '$' + reward;
+
+  // Result overlay
+  const overlay = document.getElementById('result-overlay');
+  const rStars = overlay.querySelectorAll('#result-stars .star');
+  rStars.forEach((s,i) => {
+    s.classList.toggle('filled', i < stars);
+    s.classList.toggle('empty',  i >= stars);
+  });
+  document.getElementById('result-amount').textContent = '$' + reward;
+  document.getElementById('result-fill').textContent = Math.round(pct) + '% packed';
+
+  overlay.classList.add('visible');
+  requestAnimationFrame(() => overlay.classList.add('faded'));
+  state.phase = 'result';
+}
+
+function updateTopBarStars(stars) {
+  const els = document.querySelectorAll('#stars-display .star');
+  els.forEach((s,i) => {
+    s.classList.toggle('filled', i < stars);
+    s.classList.toggle('empty',  i >= stars);
+  });
+}
+
+// ================================================================
+// SECTION 11: LEVEL INIT
+// ================================================================
+function initLevel(lvlIdx) {
+  currentLevel = lvlIdx % levels.length;
+  const lvl = levels[currentLevel];
+
+  // Apply boxes from level
+  state.box.x = lvl.box.x;   state.box.y = lvl.box.y;
+  state.box.w = lvl.box.w;   state.box.h = lvl.box.h;
+  state.box.polygon = boxToPolygon(state.box);
+
+  if (lvl.box2) {
+    state.box2.x = lvl.box2.x; state.box2.y = lvl.box2.y;
+    state.box2.w = lvl.box2.w; state.box2.h = lvl.box2.h;
+  }
+  if (lvl.sideSpacing !== undefined) state.sideSpacing = lvl.sideSpacing;
+  applyMirrorSides();
+
+  // Sync dev panel sliders to match
+  syncDevPanelToState();
+
+  // Pick TRAY_MAX items randomly from the full pool
+  const allDefs = makeItems();
+  // Shuffle
+  for (let i = allDefs.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [allDefs[i], allDefs[j]] = [allDefs[j], allDefs[i]];
+  }
+  state.items = allDefs.slice(0, TRAY_MAX).map(it => {
+      const clone = { ...it,
+        collider: it.collider.map(p => [...p]),
+        subPolygons: it.subPolygons ? it.subPolygons.map(sub => sub.map(p => [...p])) : null,
+        placed: false,
+        spawnAngleDeg: 0,
+        origW: it.w,
+        origH: it.h,
+      };
+      const angle = Math.floor(Math.random() * 360);
+      applyRotationToItem(clone, angle);
+      return clone;
+    });
+
+  state.placedItems = [];
+  state.dragging = null;
+  state.dragValid = false;
+  state.fillPct = 0;
+  state.phase = 'playing';
+
+  updateTopBarStars(0);
+  document.getElementById('score-display').textContent = '$0';
+  document.getElementById('fill-bar').style.width = '0%';
+
+  const overlay = document.getElementById('result-overlay');
+  overlay.classList.remove('visible','faded');
+
+  buildTray();
+  render();
+}
+
+// ================================================================
+// SECTION 12: DEV CONFIG PANEL
+// ================================================================
+function buildDevPanel() {
+  // ---- Box sliders ----
+  const bindBox = (id, key, valId, fmt) => {
+    const input = document.getElementById(id);
+    const valEl = document.getElementById(valId);
+    input.addEventListener('input', () => {
+      const v = fmt === 'float' ? parseFloat(input.value) : parseInt(input.value);
+      if (key === 'alpha') {
+        state.devFillAlpha = v;
+      } else {
+        state.box[key] = v;
+        state.box.polygon = boxToPolygon(state.box);
+      }
+      valEl.textContent = v;
+      render();
+    });
+  };
+  bindBox('cfg-x','x','val-x','int');
+  bindBox('cfg-y','y','val-y','int');
+  bindBox('cfg-w','w','val-w','int');
+  bindBox('cfg-h','h','val-h','int');
+  bindBox('cfg-alpha','alpha','val-alpha','float');
+
+  // ---- Main box color picker ----
+  const boxColorPick = document.getElementById('cfg-color');
+  const boxColorVal  = document.getElementById('val-color');
+  boxColorPick.addEventListener('input', () => {
+    state.box.color = boxColorPick.value;
+    boxColorVal.textContent = boxColorPick.value;
+    render();
+  });
+
+  // ---- Box toggles ----
+  const togOutline = document.getElementById('tog-outline');
+  togOutline.addEventListener('click', () => {
+    state.devShowOutline = !state.devShowOutline;
+    togOutline.classList.toggle('on', state.devShowOutline);
+    render();
+  });
+  const togFill = document.getElementById('tog-fill');
+  togFill.addEventListener('click', () => {
+    state.devShowFill = !state.devShowFill;
+    togFill.classList.toggle('on', state.devShowFill);
+    render();
+  });
+
+  // ---- Bike sliders ----
+  const bindBike = (id, key, valId) => {
+    const input = document.getElementById(id);
+    const valEl = document.getElementById(valId);
+    input.addEventListener('input', () => {
+      const v = parseInt(input.value);
+      state.bike[key] = v;
+      valEl.textContent = v;
+      render();
+    });
+  };
+  bindBike('bike-x', 'x', 'val-bike-x');
+  bindBike('bike-y', 'y', 'val-bike-y');
+  bindBike('bike-w', 'w', 'val-bike-w');
+  bindBike('bike-h', 'h', 'val-bike-h');
+
+  // ---- Bike buttons ----
+  document.getElementById('bike-reset-btn').addEventListener('click', () => {
+    state.bike = { x: 0, y: 0, w: DESIGN_W, h: DESIGN_H };
+    syncDevPanelToState();
+    render();
+  });
+  document.getElementById('bike-copy-btn').addEventListener('click', copyBikeConfig);
+
+  // ---- Sides sliders — mirrored (x, y, w, h, spacing) ----
+  const bindMirror = (id, valId, applyFn) => {
+    const input = document.getElementById(id);
+    const valEl = document.getElementById(valId);
+    if (!input) return;
+    input.addEventListener('input', () => {
+      const v = parseInt(input.value);
+      valEl.textContent = v;
+      applyFn(v);
+      applyMirrorSides();
+      render();
+    });
+  };
+  bindMirror('s-x',   'val-s-x',   v => { state.box2.x = v; });
+  bindMirror('s-y',   'val-s-y',   v => { state.box2.y = v; });
+  bindMirror('s-w',   'val-s-w',   v => { state.box2.w = v; });
+  bindMirror('s-h',   'val-s-h',   v => { state.box2.h = v; });
+  bindMirror('s-gap', 'val-s-gap', v => { state.sideSpacing = v; });
+
+  // ---- Side box color pickers ----
+  const bindColorPick = (id, valId, boxKey) => {
+    const pick = document.getElementById(id);
+    const val  = document.getElementById(valId);
+    if (!pick) return;
+    pick.addEventListener('input', () => {
+      state[boxKey].color = pick.value;
+      // sides are mirrored geometry but can have independent colors
+      val.textContent = pick.value;
+      render();
+    });
+  };
+  bindColorPick('s-color2', 'val-s-color2', 'box2');
+  bindColorPick('s-color3', 'val-s-color3', 'box3');
+
+  document.getElementById('sides-copy-btn').addEventListener('click', copySidesConfig);
+
+  // ---- Tabs ----
+  document.querySelectorAll('.dev-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.dev-tab').forEach(t => t.classList.remove('active'));
+      tab.classList.add('active');
+      const which = tab.dataset.tab;
+      document.getElementById('section-box').style.display   = which === 'box'   ? 'flex' : 'none';
+      document.getElementById('section-sides').style.display = which === 'sides' ? 'flex' : 'none';
+      document.getElementById('section-bike').style.display  = which === 'bike'  ? 'flex' : 'none';
+    });
+  });
+
+  // ---- Close / copy ----
+  document.getElementById('dev-close').addEventListener('click', toggleDevPanel);
+  document.getElementById('dev-copy-btn').addEventListener('click', copyBoxConfig);
+}
+
+function syncDevPanelToState() {
+  const setVal = (id, valId, v) => {
+    const el = document.getElementById(id);
+    const ve = document.getElementById(valId);
+    if (el && ve) { el.value = v; ve.textContent = v; }
+  };
+  // Box
+  setVal('cfg-x','val-x', state.box.x);
+  setVal('cfg-y','val-y', state.box.y);
+  setVal('cfg-w','val-w', state.box.w);
+  setVal('cfg-h','val-h', state.box.h);
+  setVal('cfg-alpha','val-alpha', state.devFillAlpha);
+  const cp = document.getElementById('cfg-color');
+  if (cp) { cp.value = state.box.color; document.getElementById('val-color').textContent = state.box.color; }
+  // Sides (mirrored — only box2 params + spacing)
+  setVal('s-x',   'val-s-x',   state.box2.x);
+  setVal('s-y',   'val-s-y',   state.box2.y);
+  setVal('s-w',   'val-s-w',   state.box2.w);
+  setVal('s-h',   'val-s-h',   state.box2.h);
+  setVal('s-gap', 'val-s-gap', state.sideSpacing);
+  const cp2 = document.getElementById('s-color2');
+  const cp3 = document.getElementById('s-color3');
+  if (cp2) { cp2.value = state.box2.color; document.getElementById('val-s-color2').textContent = state.box2.color; }
+  if (cp3) { cp3.value = state.box3.color; document.getElementById('val-s-color3').textContent = state.box3.color; }
+  // Bike
+  setVal('bike-x','val-bike-x', state.bike.x);
+  setVal('bike-y','val-bike-y', state.bike.y);
+  setVal('bike-w','val-bike-w', state.bike.w);
+  setVal('bike-h','val-bike-h', state.bike.h);
+}
+
+function toggleDevPanel() {
+  state.devVisible = !state.devVisible;
+  document.getElementById('dev-panel').classList.toggle('visible', state.devVisible);
+  document.getElementById('dev-toggle-btn').classList.toggle('active', state.devVisible);
+  if (state.devVisible) syncDevPanelToState();
+  render();
+}
+
+function copyBoxConfig() {
+  const {x,y,w,h} = state.box;
+  const txt = `box: { x: ${x}, y: ${y}, w: ${w}, h: ${h} }`;
+  navigator.clipboard.writeText(txt).then(() => {
+    const btn = document.getElementById('dev-copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => btn.textContent = orig, 1500);
+  }).catch(() => prompt('Copy this:', txt));
+}
+
+function copyBikeConfig() {
+  const {x,y,w,h} = state.bike;
+  const txt = `bike: { x: ${x}, y: ${y}, w: ${w}, h: ${h} }`;
+  navigator.clipboard.writeText(txt).then(() => {
+    const btn = document.getElementById('bike-copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => btn.textContent = orig, 1500);
+  }).catch(() => prompt('Copy this:', txt));
+}
+
+function copySidesConfig() {
+  const {x, y, w, h} = state.box2;
+  const gap = state.sideSpacing;
+  const txt = `box2: { x: ${x}, y: ${y}, w: ${w}, h: ${h} },\nsideSpacing: ${gap},\n// box3 is auto-derived: same x/w/h, y = box2.y + box2.h + sideSpacing`;
+  navigator.clipboard.writeText(txt).then(() => {
+    const btn = document.getElementById('sides-copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => btn.textContent = orig, 1500);
+  }).catch(() => prompt('Copy this:', txt));
+}
+
+// Long-press top-left corner of canvas to open dev panel
+let longPressTimeout = null;
+canvas.addEventListener('pointerdown', e => {
+  const rect = canvas.getBoundingClientRect();
+  const relX = e.clientX - rect.left;
+  const relY = e.clientY - rect.top;
+  if (relX < 50 && relY < 50) {
+    longPressTimeout = setTimeout(toggleDevPanel, 600);
+  }
+  onCanvasPointerDown(e);
+});
+canvas.addEventListener('pointerup', () => { clearTimeout(longPressTimeout); longPressTimeout = null; });
+canvas.addEventListener('pointercancel', () => { clearTimeout(longPressTimeout); longPressTimeout = null; });
+
+// Keyboard shortcut
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'd') { e.preventDefault(); toggleDevPanel(); }
+});
+
+// ================================================================
+// SECTION 13: BIKE IMAGE LOAD
+// ================================================================
+function loadBike() {
+  state.bikeImg = new Image();
+  state.bikeImg.onload = () => { state.bikeReady = true; render(); };
+  state.bikeImg.onerror = () => { state.bikeReady = false; render(); };
+  state.bikeImg.src = 'bike.png';
+}
+
+// ================================================================
+// SECTION 14: RESIZE HANDLER
+// ================================================================
+function onResize() {
+  computeScale();
+  resizeCanvas();
+  render();
+}
+
+window.addEventListener('resize', onResize);
+window.addEventListener('orientationchange', () => {
+  setTimeout(onResize, 150);
+});
+
+// ================================================================
+// SECTION 15: UI WIRING
+// ================================================================
+document.getElementById('ship-btn').addEventListener('click', () => {
+  if (state.phase === 'playing') shipIt();
+});
+document.getElementById('dev-toggle-btn').addEventListener('click', toggleDevPanel);
+document.getElementById('btn-retry').addEventListener('click', () => {
+  initLevel(currentLevel);
+});
+document.getElementById('btn-next').addEventListener('click', () => {
+  initLevel(currentLevel + 1);
+});
+
+// ================================================================
+// SECTION 16: BOOT
+// ================================================================
+function boot() {
+  buildDevPanel();
+  loadBike();
+  computeScale();
+  resizeCanvas();
+  initLevel(0);
+}
+
+// Wait for layout to settle before computing scale
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => requestAnimationFrame(boot));
+} else {
+  requestAnimationFrame(boot);
+}
+</script>
+</body>
+</html>
